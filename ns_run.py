@@ -40,10 +40,10 @@ def usage():
        | Name of file to read in for atom information
        | default: ''
 
-    ``keep_atoms_fixed=int ``
+    ``keep_atoms_fixed=int``
        | Number of atoms to fix in surface simulation. 
 
-    ``apply_Z_wall=[T|F] ``
+    ``apply_Z_wall=[T|F]``
        | Whether to have a boundary in the Z direction to keep free particles reaching the other side of "surface" layer due to periodic boundary conditions.
        | This functionality is not fully tested! Recommended use with MC evaluator and fortran. If constructing a surface layer, make it parallel to the XY plane and set the X dimension with the "wall" taken into account, no atoms should violate the wall restriction initially!!!
        | If True, the wall is set at 10 angstroms below the top of the simulation cell.
