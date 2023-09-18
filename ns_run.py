@@ -15,6 +15,7 @@ from traceback import print_exception
 import check_memory
 from ase.md.verlet import VelocityVerlet
 import importlib
+import random
 
 print_prefix=""
 
@@ -180,6 +181,14 @@ def usage():
 
     ``semi_grand_potentials=Z1 : mu1 [, Z2 : mu2 ...]``
        | Chemical potentials for semi-grand canonical species-type transmutations
+       | default: ''
+
+    ``n_grand_steps=int``
+       | Ratio of species type-change steps will be determined by ``n_grand_steps``/SUM(``n_*_steps``). Only makes sense for a single-component system.
+       | default: 0
+
+    ``grand_potential=float``
+       | Chemical potential for grand canonical moves
        | default: ''
 
     ``velo_traj_len=int``
@@ -529,6 +538,8 @@ def usage():
     sys.stderr.write("\n")
     sys.stderr.write("n_semi_grand_steps=int (0, number of species type changes)\n")
     sys.stderr.write("semi_grand_potentials={ int : float [ , int : float ... ] } (None, chemical potentials for species type changes)\n")
+    sys.stderr.write("n_grand_steps=int (0, number of insertions and deletions)\n")
+    sys.stderr.write("grand_potential=float (None, chemical potentials for grand canonical moves)\n")
     sys.stderr.write("\n")
     sys.stderr.write("velo_traj_len=int (0, number of MC sweeps in each velocity MC segement)\n")
     sys.stderr.write("\n")
@@ -709,10 +720,19 @@ def eval_energy_mu(at):
 
     return energy
 
+def eval_energy_gc(at):
+    if movement_args['grand_potential'] is not None:
+        mu = movement_args['grand_potential']
+        energy = eval_energy_PE(at) -  mu*len(at)
+    else:
+        energy = 0.0
+
+    return energy
+
 def eval_energy(at, do_KE=True, do_PE=True):
     """Calls appropriate functions to calculate the potential energy, kinetic energy and the p*V term.
     """
-    energy = eval_energy_PV(at) + eval_energy_mu(at)
+    energy = eval_energy_PV(at) + eval_energy_mu(at) + eval_energy_gc(at)
 
     if do_PE:
         energy += eval_energy_PE(at)
@@ -1507,6 +1527,52 @@ def do_MC_semi_grand_step(at, movement_args, Emax, KEmax):
 
     return (1, {'MC_semi_grand' : (1, n_accept) })
 
+def do_MC_grand_step(at, movement_args, Emax, KEmax):
+    # atom addition/deletion
+
+    Z = at.get_positions()
+    atom_sym = at.get_chemical_symbols()[-1]
+
+    rand = random.choice([0, 1])
+    # print("rand", rand)
+
+    if rand == 0:
+        # first do addition - try simple random first
+        cell = at.get_cell().diagonal()
+        new_pos = [rng.float_uniform(0.0,1.0)*l for l in cell]
+        # print("new_pos", new_pos)
+        new_atom = ase.Atoms(atom_sym, positions=[tuple(new_pos)])
+        at += new_atom
+        new_energy = eval_energy(at)
+        new_KE = eval_energy_KE(at)
+        if new_energy < Emax and (KEmax < 0.0 or new_KE < KEmax): # accept
+            # update energy
+            at.info['ns_energy'] = new_energy
+            n_accept = 1
+        else:
+            # undo
+            del at[-1]
+            n_accept = 0
+
+    elif rand == 1 and len(at) > 1:
+        # now do deletion - simple random too
+        at_i = rng.int_uniform(0,len(at))
+        pos = at.get_positions()[at_i]
+        del at[at_i]
+        new_energy = eval_energy(at)
+        new_KE = eval_energy_KE(at)
+        if new_energy < Emax and (KEmax < 0.0 or new_KE < KEmax): # accept
+            # update energy
+            at.info['ns_energy'] = new_energy
+            n_accept = 1
+        else:
+            # undo
+            new_atom = ase.Atoms(atom_sym, positions=[tuple(pos)])
+            at += new_atom
+            n_accept = 0
+
+    return (1, {'MC_grand' : (1, n_accept) })
+
 def do_MC_swap_step(at, movement_args, Emax, KEmax):
 #DOC
 #DOC ``do_MC_swap_step``
@@ -1728,14 +1794,17 @@ def walk_single_walker(at, movement_args, Emax, KEmax):
                                    do_MC_cell_shear_step,
                                    do_MC_cell_stretch_step,
                                    do_MC_swap_step,
-                                   do_MC_semi_grand_step])
+                                   do_MC_semi_grand_step,
+                                   do_MC_grand_step])
         nums = np.array([movement_args['n_atom_steps_n_calls'],
                          movement_args['n_cell_volume_steps'],
                          movement_args['n_cell_shear_steps'],
                          movement_args['n_cell_stretch_steps'],
                          movement_args['n_swap_steps'],
-                         movement_args['n_semi_grand_steps']])
+                         movement_args['n_semi_grand_steps'],
+                         movement_args['n_grand_steps']])
         costs = np.array([movement_args['atom_traj_len']*movement_args['atom_traj_len_cost_multiplier'],
+                          1,
                           1,
                           1,
                           1,
@@ -1761,7 +1830,9 @@ def walk_single_walker(at, movement_args, Emax, KEmax):
                             #DOC \item do\_swap\_step :math:`*` n\_swap\_steps
                           [do_MC_swap_step] * movement_args['n_swap_steps'] +
                             #DOC \item do\_semi\_grand\_step :math:`*` n\_semi\_grand\_steps
-                          [do_MC_semi_grand_step] * movement_args['n_semi_grand_steps'])
+                          [do_MC_semi_grand_step] * movement_args['n_semi_grand_steps'] +
+                          #DOC \item do\_grand\_step :math:`*` n\_grand\_steps
+                          [do_MC_grand_step] * movement_args['n_grand_steps'])
 
         out = {}
         n_model_calls_used = 0
@@ -2711,7 +2782,11 @@ def do_ns_loop():
 
         if n_cull == 1:
             if send_rank[0] == recv_rank[0] and send_rank[0] == rank:  # local copy
-                walkers[recv_ind[0]].set_positions(walkers[send_ind[0]].get_positions())
+                if movement_args['n_grand_steps'] > 0:
+                    # do something
+                    walkers[recv_ind[0]] = walkers[send_ind[0]]
+                else:
+                    walkers[recv_ind[0]].set_positions(walkers[send_ind[0]].get_positions())
                 walkers[recv_ind[0]].set_cell(walkers[send_ind[0]].get_cell())
                 if movement_args['do_velocities']:
                     walkers[recv_ind[0]].set_velocities(walkers[send_ind[0]].get_velocities())
@@ -3414,6 +3489,12 @@ def main():
         else:
             movement_args['semi_grand_potentials'] = None
 
+        movement_args['n_grand_steps'] = int(args.pop('n_grand_steps', 0))
+        if movement_args['n_grand_steps'] > 0:
+            movement_args['grand_potential'] = float(args.pop('grand_potential', 0.0))
+        else:
+            movement_args['grand_potential'] = None
+
         if movement_args['n_model_calls_expected'] < 0:
             movement_args['n_model_calls_expected'] = (movement_args['n_atom_steps']*movement_args['atom_traj_len']*movement_args['atom_traj_len_cost_multiplier'] +
                                                        movement_args['n_cell_volume_steps'] +
@@ -3439,7 +3520,8 @@ def main():
             movement_args['n_cell_shear_steps'] <= 0 and
             movement_args['n_cell_stretch_steps'] <= 0 and
             movement_args['n_swap_steps'] <= 0 and
-            movement_args['n_semi_grand_steps'] <= 0):
+            movement_args['n_semi_grand_steps'] <= 0 and
+            movement_args['n_grand_steps'] <= 0):
             exit_error("Got all of n_steps_* == 0\n", 3)
 
         movement_args['velo_traj_len'] = int(args.pop('velo_traj_len', 8))
