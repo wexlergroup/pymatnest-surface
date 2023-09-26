@@ -15,7 +15,6 @@ from traceback import print_exception
 import check_memory
 from ase.md.verlet import VelocityVerlet
 import importlib
-import random
 
 print_prefix=""
 
@@ -1533,7 +1532,7 @@ def do_MC_grand_step(at, movement_args, Emax, KEmax):
     Z = at.get_positions()
     atom_sym = at.get_chemical_symbols()[-1]
 
-    rand = random.choice([0, 1])
+    rand = np.random.choice([0, 1])
     # print("rand", rand)
 
     if rand == 0:
@@ -1554,22 +1553,25 @@ def do_MC_grand_step(at, movement_args, Emax, KEmax):
             del at[-1]
             n_accept = 0
 
-    elif rand == 1 and len(at) > 1:
-        # now do deletion - simple random too
-        at_i = rng.int_uniform(0,len(at))
-        pos = at.get_positions()[at_i]
-        del at[at_i]
-        new_energy = eval_energy(at)
-        new_KE = eval_energy_KE(at)
-        if new_energy < Emax and (KEmax < 0.0 or new_KE < KEmax): # accept
-            # update energy
-            at.info['ns_energy'] = new_energy
-            n_accept = 1
-        else:
-            # undo
-            new_atom = ase.Atoms(atom_sym, positions=[tuple(pos)])
-            at += new_atom
+    elif rand == 1:
+        if len(at) < 2: # can't delete if only one atom
             n_accept = 0
+        else:
+            # now do deletion - simple random too
+            at_i = rng.int_uniform(0,len(at))
+            pos = at.get_positions()[at_i]
+            del at[at_i]
+            new_energy = eval_energy(at)
+            new_KE = eval_energy_KE(at)
+            if new_energy < Emax and (KEmax < 0.0 or new_KE < KEmax): # accept
+                # update energy
+                at.info['ns_energy'] = new_energy
+                n_accept = 1
+            else:
+                # undo
+                new_atom = ase.Atoms(atom_sym, positions=[tuple(pos)])
+                at += new_atom
+                n_accept = 0
 
     return (1, {'MC_grand' : (1, n_accept) })
 
