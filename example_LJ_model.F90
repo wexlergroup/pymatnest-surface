@@ -71,6 +71,33 @@ implicit none
        cutoff = 3.0*sigma
        cutoff_sq = cutoff*cutoff
 
+   else if (N_params == 7) then
+
+       epsilon(1,1) = 4.0*params(1)
+       epsilon(2,2) = 4.0*params(2)
+       epsilon(1,2) = 4.0*params(3)
+       epsilon(2,1) = epsilon(1,2)
+    
+       sigma(1,1) = params(4)
+       sigma(2,2) = params(5)
+       sigma(1,2) = params(6)
+       sigma(2,1) = sigma(1,2)
+    
+       cutoff = params(7)*sigma
+       cutoff_sq = cutoff*cutoff
+       write(*,*) "User defined LJ parameters:"
+       write(*,*) "(1)-(1)Epsilon=",params(1),"(2)-(2)Epsilon=",params(2), &
+                &"(1)-(2)Epsilon=",params(3)
+       write(*,*) "(1)-(1)Sigma=",  params(4),"(2)-(2)Sigma=",params(5), &
+                &"(1)-(2)Sigma=",params(6)
+       write(*,*) "Mixed term LJ parameters are set using", &
+                &" user defined values."
+       write(*,*) "sigma(1,1), sigma(2,2), sigma(1,2) and sigma(2,1) are set to:"
+       write(*,*) sigma(1,1), sigma(2,2), sigma(1,2), sigma(2,1)
+       write(*,*) "LJ cutoff(1,1), LJ cutoff(2,2), LJ cutoff(1,2) and LJ cutoff(2,1) are set to:"
+       write(*,*) cutoff(1,1), cutoff(2,2), cutoff(1,2), cutoff(2,1)
+
+
    else
 
        epsilon(1,1) = 4.0*params(1) ! The usual 4 factor in the LJ equation is
@@ -96,6 +123,7 @@ implicit none
 
 
    E_offset = (sigma/cutoff)**12 - (sigma/cutoff)**6
+   write(*,*) "LJ offset=",E_offset
 
 end subroutine ll_init_model
 
