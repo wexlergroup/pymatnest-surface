@@ -778,8 +778,7 @@ def propagate_lammps(at, dt, n_steps, algo, Emax=None):
             exit_error("propagate_lammps got algo '%s', which does not work with fixed atoms\n" % algo)
         # Hard coded value needed for LAMMPS. Let's hope our RNG maximum is at
         # least this large.
-        pot.lmp.command(
-            'fix 1 all gmc {} {} '.format(rng.int_uniform(1, 900000000), Emax))
+        pot.lmp.command('fix 1 all ns/gmc {} {} '.format(rng.int_uniform(1, 900000000), Emax))
     else:
         exit_error(
             "propagate_lammps got algo '%s', neither NVE nor GMC\n" % algo)
@@ -2571,14 +2570,20 @@ def do_ns_loop():
                 E_dump_list.append([w.info['ns_energy'] for w in walkers])
             E_dump_list_times.append(i_ns_step)
 
+        if ns_args['traj_interval'] > 0:
+            for at in traj_walker_list:
+                ase.io.write(traj_io, at, parallel=False, format=ns_args['config_file_format'])
+            traj_io.flush()
+            traj_walker_list=[]
+
         # print(the recorded Emax walkers configurations to output file)
         if (ns_args['snapshot_interval'] < 0 or i_ns_step % ns_args['snapshot_interval'] == ns_args['snapshot_interval']-1 or
-                (ns_args['snapshot_seq_pairs'] and i_ns_step > 0 and i_ns_step % ns_args['snapshot_interval'] == 0)):
-            if ns_args['traj_interval'] > 0:
-                for at in traj_walker_list:
-                    ase.io.write(traj_io, at, parallel=False, format=ns_args['config_file_format'])
-                traj_io.flush()
-                traj_walker_list = []
+            (ns_args['snapshot_seq_pairs'] and i_ns_step > 0 and i_ns_step%ns_args['snapshot_interval'] == 0) ) :
+            ##NB if ns_args['traj_interval'] > 0:
+                ##NB for at in traj_walker_list:
+                    ##NB ase.io.write(traj_io, at, parallel=False, format=ns_args['config_file_format'])
+                ##NB traj_io.flush()
+                ##NB traj_walker_list=[]
             if ns_args['E_dump_interval'] > 0:
                 if comm is not None:
                     E_dump_list_all = np.array(comm.allgather(E_dump_list))
